@@ -2,24 +2,24 @@
 
 This folder contains the Windows implementation of the local Notion → Anki system. The Notion side is shared across operating systems and is documented in [`../../notion/README.md`](../../notion/README.md).
 
-The Windows system reads Flashcards database rows from Notion, imports them into Anki Desktop through AnkiConnect, repairs missing imports, and synchronizes AnkiWeb after successful imports.
+The system does not generate flashcard content. The Notion Lecture Flashcard Generator creates Flashcards database rows. This system imports rows whose Notion status is `Ready`, checks `Imported` rows for missing imports, creates organized Anki decks, and syncs AnkiWeb.
 
 ## Requirements
 
 - Windows 11
 - Python 3 with the Python launcher (`py`) or `python` available in PowerShell
 - Anki Desktop for Windows
-- AnkiConnect installed and enabled in Anki Desktop
+- [AnkiConnect](https://ankiweb.net/shared/info/2055492159) installed and enabled in Anki Desktop
 - A Notion internal integration with access to the Flashcards database
-- An AnkiWeb account configured in Anki Desktop
+- An AnkiWeb account signed in within Anki Desktop
 
-Anki Desktop must be running for AnkiConnect to work. The scheduled runner can start Anki automatically if it can find `anki.exe`.
+Anki Desktop must be running for AnkiConnect to accept cards. The scheduled task can start Anki automatically if it can find `anki.exe`. The Windows computer must be awake and online when the scheduled task runs.
 
-## 1. Copy the project and configure `.env`
+## Configuration
 
-Keep this repository in a stable local folder. iCloud Drive can be used for the repository, but the scheduled task should point to a local path if iCloud files may be unavailable while offline.
+Keep the project in a stable local folder. Cloud-synced folders can be used, but choose a path that is available while the scheduled task runs, including when offline.
 
-In PowerShell, from this folder:
+In PowerShell, from this folder, create a private `.env` file from the template and open it for editing:
 
 ```powershell
 Copy-Item env.example .env
@@ -33,51 +33,73 @@ NOTION_TOKEN=your_internal_connection_token
 NOTION_DATABASE_ID=your_flashcards_database_id
 ```
 
-If Anki is installed in a nonstandard location, also set:
+Share the Flashcards database with the Notion integration. If Anki is installed in a nonstandard location, also set:
 
 ```text
 ANKI_EXE_PATH=C:\Path\To\anki.exe
 ```
 
-Do not commit `.env`.
+The other settings in `env.example` control Notion property names, Anki deck naming, and automatic AnkiWeb syncing. Do not commit `.env` or share its token.
 
-## 2. Test one run
+## Install and configure AnkiConnect
 
-Open Anki Desktop and make sure AnkiConnect is enabled. Then run:
+1. In Anki Desktop, install [AnkiConnect](https://ankiweb.net/shared/info/2055492159) from the add-on page.
+2. Open **Tools → Add-ons**, select **AnkiConnect**, then open **Config**.
+3. Keep the local API address and port at `127.0.0.1` and `8765`. Leave `apiKey` as `null`; this sync script does not use an API key. The other default settings, including `webCorsOriginList`, can stay as they are.
+4. Save the configuration and restart Anki Desktop so AnkiConnect starts its local server.
+
+The sync script connects to `http://127.0.0.1:8765`. AnkiConnect must be running in Anki Desktop for either a manual or scheduled sync.
+
+## Manual test
+
+Open Anki Desktop and confirm AnkiConnect is enabled. In PowerShell, from this folder, run:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\run_anki_sync.ps1 -StartAnki
 ```
 
-The runner loads `.env`, waits for AnkiConnect, runs the shared Python sync logic, and returns the Python exit code.
+The runner loads `.env`, starts Anki if requested and not already available, waits for AnkiConnect, then runs the Python sync script. The Python script uses only the standard library. It checks `Ready` and `Imported` Notion rows, uses each page's stable `notionid_...` tag to prevent duplicate imports, and changes successfully imported rows to `Imported`.
 
-## 3. Install automatic scheduling
+Rows reported as `SKIP already in Anki` are already present and are not duplicated. A successful run ends with a `Done.` summary. AnkiWeb syncing is requested only when the run imports at least one card.
 
-Run PowerShell from this folder:
+## Automatic scheduling
+
+Open PowerShell **as the Windows account that should own the task**. If registration reports **Access is denied**, reopen PowerShell with **Run as administrator** and run these commands from the repository:
 
 ```powershell
+Set-Location 'C:\GitRepos\notion-anki-flashcard-tool'
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\install_task_scheduler.ps1
+.\system\windows\install_task_scheduler.ps1
 ```
 
-This creates a task named `Notion-Anki-Sync` that runs at login and every 15 minutes. It runs only while your Windows user is logged in and can start Anki if it is not already open.
+This registers a task named `Notion-Anki-Sync` for the account running PowerShell and starts it once immediately. A successful install prints `Installed Windows Task Scheduler task: Notion-Anki-Sync`. After that it runs at login and every 15 minutes while you are logged in. The task hides its PowerShell window, uses the project folder as its working directory, and can start Anki if it is not already open.
 
-To remove it:
+If the task was installed before the hidden-window option was added, rerun the installer from an elevated PowerShell window to update the existing task. The scheduled task starts Anki when needed, so Anki itself may still appear.
+
+To remove the task, run:
 
 ```powershell
-.\uninstall_task_scheduler.ps1
+Set-Location 'C:\GitRepos\notion-anki-flashcard-tool'
+.\system\windows\uninstall_task_scheduler.ps1
 ```
+
+The install script accepts `-IntervalMinutes` to change the repeat interval, for example `-IntervalMinutes 30`.
 
 ## AnkiWeb and other devices
 
-Complete the initial AnkiWeb setup manually in Anki Desktop on the Windows computer. Sign in to the same AnkiWeb account used by the Mac and phone, then choose **Upload** only if this collection is the authoritative copy. After that, the Python script calls AnkiConnect's AnkiWeb sync action after importing cards.
+Complete the initial AnkiWeb setup manually in Anki Desktop on this Windows computer:
 
-Anki on the phone and Mac will generally sync when their collections are opened or closed. The Windows computer must be awake, online, and able to run Anki for the scheduled import and AnkiWeb sync to occur.
+1. Sign in to the same AnkiWeb account used on your other devices.
+2. Click Anki's Sync button once.
+3. Choose **Upload** only if this collection is the authoritative copy.
+4. Sign in to that same AnkiWeb account on your Mac and phone.
 
-## Troubleshooting
+After that, the script calls AnkiConnect's AnkiWeb sync action after successful imports when `ANKIWEB_AUTO_SYNC=true`. Anki clients generally sync when their collections are opened or closed. Windows must be awake, online, logged in, and able to run Anki for the scheduled import and upload to occur.
 
-The Python script prints its output in the scheduled task context. For a visible test, run `run_anki_sync.ps1` manually from PowerShell.
+## Logs and troubleshooting
+
+For a visible run, start `run_anki_sync.ps1` manually from PowerShell. It prints progress and errors in that window. The scheduled task runs without a visible console, so use Task Scheduler's task history if you need to diagnose a scheduled run.
 
 Look for:
 
@@ -88,8 +110,11 @@ SYNCED Anki collection to AnkiWeb.
 
 Common issues:
 
-- **AnkiConnect unavailable:** open Anki Desktop and confirm the add-on is enabled.
+- **AnkiConnect unavailable or connection refused at `127.0.0.1:8765`:** confirm the add-on is enabled and restart Anki Desktop after installing it or changing its configuration.
 - **Python not found:** install Python 3 and enable the Python launcher or add Python to PATH.
-- **Anki not found:** set `ANKI_EXE_PATH` in `.env`.
+- **Anki not found:** set `ANKI_EXE_PATH` in `.env`, or start Anki Desktop manually.
 - **Execution policy error:** use `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` for the current PowerShell window.
-- **Sync conflict:** resolve it manually in Anki after checking which device has the authoritative collection.
+- **Notion returns `404 object_not_found`:** check that `NOTION_DATABASE_ID` is the Flashcards database ID and that the database has been shared with the integration named by the token in `.env`.
+- **Task registration says `Access is denied`:** run PowerShell as administrator under the Windows account that should own the task, then run the installer again.
+- **PowerShell window still appears for scheduled runs:** rerun the current installer as administrator to update the registered task with the hidden-window option.
+- **Sync conflict:** resolve it manually in Anki after checking which device has the authoritative collection. Do not blindly choose Upload or Download.
