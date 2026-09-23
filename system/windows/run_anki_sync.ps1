@@ -67,6 +67,9 @@ function Test-AnkiConnect {
 
 Import-DotEnv $EnvFile
 Set-Location -LiteralPath $ProjectDir
+# Notion questions can contain Unicode punctuation that the Windows console
+# code page cannot encode. Keep Python's output UTF-8 so one card cannot abort a run.
+$env:PYTHONIOENCODING = "utf-8"
 
 if ($StartAnki -and -not (Test-AnkiConnect)) {
     $ankiPath = Get-AnkiExecutable
