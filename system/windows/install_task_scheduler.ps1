@@ -13,7 +13,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $ProjectDir ".env"))) {
 }
 
 $powershell = (Get-Command powershell.exe).Source
-$arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$Runner`" -StartAnki"
+$arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Runner`" -StartAnki"
 $action = New-ScheduledTaskAction -Execute $powershell -Argument $arguments -WorkingDirectory $ProjectDir
 $logonTrigger = New-ScheduledTaskTrigger -AtLogOn
 $repeatTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
