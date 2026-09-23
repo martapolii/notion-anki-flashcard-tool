@@ -73,7 +73,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\system\windows\install_task_scheduler.ps1
 ```
 
-This registers a task named `Notion-Anki-Sync` for the account running PowerShell and starts it once immediately. A successful install prints `Installed Windows Task Scheduler task: Notion-Anki-Sync`. After that it runs at login and every 15 minutes while you are logged in. The task hides its PowerShell window, uses the project folder as its working directory, and can start Anki if it is not already open.
+This registers a task named `Notion-Anki-Sync` for the account running PowerShell and starts it once immediately. A successful install prints `Installed Windows Task Scheduler task: Notion-Anki-Sync`. After that it runs at login and every 15 minutes while you are logged in. The task hides its PowerShell window, uses the project folder as its working directory, and can start Anki if it is not already open. If the task starts Anki, Anki stays open after the sync finishes by design, providing a visible cue that the sync ran and may have added flashcards.
 
 If the task was installed before the hidden-window option was added, rerun the installer from an elevated PowerShell window to update the existing task. The scheduled task starts Anki when needed, so Anki itself may still appear.
 

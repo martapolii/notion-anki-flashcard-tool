@@ -15,6 +15,7 @@ This file records the repository changes made for each project version.
 
 - Set Python output to UTF-8 in the PowerShell runner so Unicode punctuation in card text does not cause Windows console encoding errors.
 - Updated the Task Scheduler installer to launch PowerShell with its window hidden. Re-run the installer from an elevated PowerShell window to apply this setting to an existing task.
+- Documented that Anki intentionally remains open after a scheduled sync starts it, as a visible cue that the sync ran and may have added flashcards.
 
 ### Windows setup notes
 
