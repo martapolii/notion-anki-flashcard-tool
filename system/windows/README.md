@@ -73,9 +73,9 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\system\windows\install_task_scheduler.ps1
 ```
 
-This registers a task named `Notion-Anki-Sync` for the account running PowerShell and starts it once immediately. A successful install prints `Installed Windows Task Scheduler task: Notion-Anki-Sync`. After that it runs at login and every 15 minutes while you are logged in. The task hides its PowerShell window, uses the project folder as its working directory, and can start Anki if it is not already open. If the task starts Anki, Anki stays open after the sync finishes by design, providing a visible cue that the sync ran and may have added flashcards.
+This registers a task named `Notion-Anki-Sync` for the account running PowerShell and starts it once immediately. A successful install prints `Installed Windows Task Scheduler task: Notion-Anki-Sync`. After that it runs at login and every 15 minutes while you are logged in. The task uses a windowless Windows Script Host launcher for PowerShell, uses the project folder as its working directory, and can start Anki if it is not already open. If the task starts Anki, Anki stays open after the sync finishes by design, providing a visible cue that the sync ran and may have added flashcards.
 
-If the task was installed before the hidden-window option was added, rerun the installer from an elevated PowerShell window to update the existing task. The scheduled task starts Anki when needed, so Anki itself may still appear.
+If the task was installed before the hidden launcher was added, rerun the installer from an elevated PowerShell window to update the existing task. The scheduled task starts Anki when needed, so Anki itself may still appear.
 
 To remove the task, run:
 
@@ -116,5 +116,5 @@ Common issues:
 - **Execution policy error:** use `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` for the current PowerShell window.
 - **Notion returns `404 object_not_found`:** check that `NOTION_DATABASE_ID` is the Flashcards database ID and that the database has been shared with the integration named by the token in `.env`.
 - **Task registration says `Access is denied`:** run PowerShell as administrator under the Windows account that should own the task, then run the installer again.
-- **PowerShell window still appears for scheduled runs:** rerun the current installer as administrator to update the registered task with the hidden-window option.
+- **PowerShell window still appears for scheduled runs:** rerun the current installer as administrator to update the registered task to use the hidden launcher. Anki itself may still appear when the task starts it.
 - **Sync conflict:** resolve it manually in Anki after checking which device has the authoritative collection. Do not blindly choose Upload or Download.

@@ -5,16 +5,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Runner = Join-Path $ProjectDir "run_anki_sync.ps1"
 $TaskName = "Notion-Anki-Sync"
+$HiddenRunner = Join-Path $ProjectDir "run_anki_sync_hidden.vbs"
 
 if (-not (Test-Path -LiteralPath (Join-Path $ProjectDir ".env"))) {
     throw "Missing .env file. Copy env.example to .env and fill it in before installing the task."
 }
 
-$powershell = (Get-Command powershell.exe).Source
-$arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Runner`" -StartAnki"
-$action = New-ScheduledTaskAction -Execute $powershell -Argument $arguments -WorkingDirectory $ProjectDir
+$windowsScriptHost = Join-Path $env:SystemRoot "System32\wscript.exe"
+$arguments = "//B //NoLogo `"$HiddenRunner`""
+$action = New-ScheduledTaskAction -Execute $windowsScriptHost -Argument $arguments -WorkingDirectory $ProjectDir
 $logonTrigger = New-ScheduledTaskTrigger -AtLogOn
 $repeatTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
     -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
