@@ -2,6 +2,17 @@
 
 This file records the repository changes made for each project version.
 
+## v3 — 2026-09-30
+
+### Notion to Anki sync behavior
+
+- Treat Notion as the source of truth for `Front`/`Back` content and deck placement for existing cards.
+- Update existing `Imported` notes when the corresponding Notion row changes, while preserving Anki tags the workflow does not manage.
+- Delete matching Anki notes when a Notion row is marked `Rejected`; retain the rejected row so future syncs can find the note if needed.
+- Move an `Imported` row to `Needs review` when its tagged Anki note is missing, rather than silently recreating a card someone removed. Set it back to `Ready` to intentionally add it again.
+- Sync AnkiWeb after collection changes, including updates and deletions.
+- Document behavior in both platform guides and add `Rejected`/`Needs review` configuration values to both environment templates.
+
 ## v2 — 2026-09-23
 
 ### Documentation

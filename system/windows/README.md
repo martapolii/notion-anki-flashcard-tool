@@ -2,7 +2,7 @@
 
 This folder contains the Windows implementation of the local Notion → Anki system. The Notion side is shared across operating systems and is documented in [`../../notion/README.md`](../../notion/README.md).
 
-The system does not generate flashcard content. The Notion Lecture Flashcard Generator creates Flashcards database rows. This system imports rows whose Notion status is `Ready`, checks `Imported` rows for missing imports, creates organized Anki decks, and syncs AnkiWeb.
+The system does not generate flashcard content. The Notion Lecture Flashcard Generator creates Flashcards database rows. This system adds `Ready` rows, keeps `Imported` notes synchronized with Notion, deletes notes for `Rejected` rows, creates organized Anki decks, and syncs AnkiWeb.
 
 ## Requirements
 
@@ -39,7 +39,7 @@ Share the Flashcards database with the Notion integration. If Anki is installed 
 ANKI_EXE_PATH=C:\Path\To\anki.exe
 ```
 
-The other settings in `env.example` control Notion property names, Anki deck naming, and automatic AnkiWeb syncing. Do not commit `.env` or share its token.
+The Status select needs `Ready`, `Imported`, `Rejected`, and `Needs review` options. The sync uses `Needs review` when an imported note has disappeared from Anki. The other settings in `env.example` control Notion property names, Anki deck naming, and automatic AnkiWeb syncing. Do not commit `.env` or share its token.
 
 ## Install and configure AnkiConnect
 
@@ -59,9 +59,11 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\run_anki_sync.ps1 -StartAnki
 ```
 
-The runner loads `.env`, starts Anki if requested and not already available, waits for AnkiConnect, then runs the Python sync script. The Python script uses only the standard library. It checks `Ready` and `Imported` Notion rows, uses each page's stable `notionid_...` tag to prevent duplicate imports, and changes successfully imported rows to `Imported`.
+The runner loads `.env`, starts Anki if requested and not already available, waits for AnkiConnect, then runs the Python sync script. The Python script uses only the standard library. It checks `Ready`, `Imported`, and `Rejected` Notion rows and uses each page's stable `notionid_...` tag to find its Anki note.
 
-Rows reported as `SKIP already in Anki` are already present and are not duplicated. A successful run ends with a `Done.` summary. AnkiWeb syncing is requested only when the run imports at least one card.
+`Ready` creates a note if none exists, or updates the existing note, then changes the Notion status to `Imported`. The sync also updates existing `Imported` notes when their question, answer, Notion tags, or target deck changes in Notion, so you do not need to reset edited cards to `Ready`. It adds missing Notion tags and preserves tags it does not manage. `Rejected` deletes the matching Anki note(s) and leaves the Notion row rejected. An `Imported` row whose note is missing from Anki changes to `Needs review`; it is not recreated automatically. Set it to `Ready` to add it again.
+
+Keep rejected rows in Notion: deleting a row outright removes the sync's way to identify and delete its Anki note. A successful run ends with a `Done.` summary. AnkiWeb syncing is requested after any Anki collection changes (add, update, or delete).
 
 ## Automatic scheduling
 
@@ -95,7 +97,7 @@ Complete the initial AnkiWeb setup manually in Anki Desktop on this Windows comp
 3. Choose **Upload** only if this collection is the authoritative copy.
 4. Sign in to that same AnkiWeb account on your Mac and phone.
 
-After that, the script calls AnkiConnect's AnkiWeb sync action after successful imports when `ANKIWEB_AUTO_SYNC=true`. Anki clients generally sync when their collections are opened or closed. Windows must be awake, online, logged in, and able to run Anki for the scheduled import and upload to occur.
+After that, the script calls AnkiConnect's AnkiWeb sync action after collection changes when `ANKIWEB_AUTO_SYNC=true`. Anki clients generally sync when their collections are opened or closed. Windows must be awake, online, logged in, and able to run Anki for the scheduled import and upload to occur.
 
 ## Logs and troubleshooting
 
@@ -104,8 +106,10 @@ For a visible run, start `run_anki_sync.ps1` manually from PowerShell. It prints
 Look for:
 
 ```text
-IMPORTED/REPAIRED:
-SYNCED Anki collection to AnkiWeb.
+IMPORTED:
+UPDATED from Notion:
+DELETED rejected card(s) from Anki:
+SYNCED Anki collection changes to AnkiWeb.
 ```
 
 Common issues:

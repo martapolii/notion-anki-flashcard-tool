@@ -22,13 +22,13 @@ The files in [`notion/archive`](notion/archive) are historical versions and are 
 #### Mac
 
 - [macOS system setup](system/macos/README.md) — Python, AnkiConnect, `.env`, LaunchAgent automation, AnkiWeb syncing, and troubleshooting.
-- [`system/macos/anki_notion_sync.py`](system/macos/anki_notion_sync.py) — imports and repairs cards through AnkiConnect.
+- [`system/macos/anki_notion_sync.py`](system/macos/anki_notion_sync.py) — adds, updates, and rejects cards through AnkiConnect.
 - [`system/macos/env.example`](system/macos/env.example) — safe configuration template.
 
 #### Windows
 
 - [Windows 11 system setup](system/windows/README.md) — Python, AnkiConnect, PowerShell, Task Scheduler automation, AnkiWeb syncing, and troubleshooting.
-- [`system/windows/anki_notion_sync.py`](system/windows/anki_notion_sync.py) — imports and repairs cards through AnkiConnect.
+- [`system/windows/anki_notion_sync.py`](system/windows/anki_notion_sync.py) — adds, updates, and rejects cards through AnkiConnect.
 - [`system/windows/env.example`](system/windows/env.example) — safe configuration template.
 
 ## High-level flow
@@ -38,7 +38,7 @@ Notion AI transcript summaries
         ↓
 Lecture Flashcard Generator agent
         ↓
-Notion Flashcards database (Status = Ready)
+Notion Flashcards database (Ready / Imported / Rejected)
         ↓
 macOS LaunchAgent or Windows Task Scheduler
         + Python sync script
@@ -50,7 +50,9 @@ AnkiWeb
 Phone and Windows Anki clients
 ```
 
-The Notion agent does not call Anki directly. The Mac and Windows systems read the Flashcards database through the Notion API, create course/week decks in Anki, prevent duplicate imports with stable Notion page tags, and sync the collection to AnkiWeb after successful imports.
+The Notion agent does not call Anki directly. The Mac and Windows systems read `Ready`, `Imported`, and `Rejected` rows through the Notion API. `Ready` rows are added to Anki, `Imported` rows stay synchronized when their Notion content or deck changes, and `Rejected` rows are deleted from Anki. Stable Notion page tags prevent duplicate imports. Collection changes are synced to AnkiWeb.
+
+You do not need to set an edited `Imported` row back to `Ready`; imported rows are checked each run. If an `Imported` note is missing from Anki, the sync moves its Notion status to `Needs review` and does not recreate it automatically. Set it back to `Ready` to add it again. Mark a row `Rejected` to remove its Anki note. Deleting a row outright in Notion does not communicate a deletion to the sync; mark it `Rejected` instead.
 
 ## Current Anki organization
 

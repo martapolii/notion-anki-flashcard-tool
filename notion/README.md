@@ -22,4 +22,4 @@ The files in [`archive`](archive) are retained for history only. They describe e
 
 ## Boundary with the system documentation
 
-Notion is responsible for creating rows in the Flashcards database with `Status = Ready`. The macOS system is responsible for reading those rows, importing them into Anki, repairing missing imports, and syncing AnkiWeb. See [`../system/macos/README.md`](../system/macos/README.md) for the system side.
+Notion is the source of truth for flashcard content and status. The local sync adds `Ready` rows, mirrors edits to `Imported` notes, and deletes the Anki notes for rows marked `Rejected`. If an `Imported` note is missing from Anki, its Notion row moves to `Needs review` rather than being recreated. Keep rejected rows in the database so the sync can identify the matching Anki note. See the platform setup guides in [`../system/macos/README.md`](../system/macos/README.md) and [`../system/windows/README.md`](../system/windows/README.md).
