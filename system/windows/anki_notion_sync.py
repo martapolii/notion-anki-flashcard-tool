@@ -12,7 +12,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, Callable
 
 
 NOTION_VERSION = os.getenv("NOTION_VERSION", "2022-06-28")
@@ -92,7 +92,7 @@ def query_sync_pages(database_id: str) -> list[dict[str, Any]]:
     url = f"{NOTION_API}/databases/{database_id}/query"
     statuses = [
         value.strip()
-        for value in os.getenv("NOTION_SYNC_STATUS_VALUES", "Ready,Imported").split(",")
+        for value in os.getenv("NOTION_SYNC_STATUS_VALUES", "Ready,Imported,Rejected").split(",")
         if value.strip()
     ]
     status_filters = [
@@ -199,6 +199,56 @@ def stable_page_tag(card: dict[str, Any]) -> str:
     return next(tag for tag in card["tags"] if tag.startswith("notionid_"))
 
 
+def page_id_tag(page: dict[str, Any]) -> str:
+    """Build the stable Anki tag without requiring a valid question or answer."""
+    return "notionid_" + page["id"].replace("-", "")
+
+
+def note_field_value(note_info: dict[str, Any], name: str) -> str | None:
+    field = note_info.get("fields", {}).get(name)
+    return field.get("value") if isinstance(field, dict) else field
+
+
+def update_existing_note(note_info: dict[str, Any], card: dict[str, Any],
+                         before_mutation: Callable[[], None]) -> bool:
+    """Mirror Notion content and deck placement while preserving user tags."""
+    note_id = note_info["noteId"]
+    changed = False
+    fields = {}
+    if note_field_value(note_info, "Front") != card["front"]:
+        fields["Front"] = card["front"]
+    if note_field_value(note_info, "Back") != card["back"]:
+        fields["Back"] = card["back"]
+    if fields:
+        before_mutation()
+        anki("updateNoteFields", {"note": {"id": note_id, "fields": fields}})
+        changed = True
+
+    existing_tags = set(note_info.get("tags", []))
+    tags_to_add = [tag for tag in card["tags"] if tag not in existing_tags]
+    if tags_to_add:
+        before_mutation()
+        anki("addTags", {"notes": [note_id], "tags": " ".join(tags_to_add)})
+        changed = True
+
+    card_ids = note_info.get("cards", [])
+    if card_ids:
+        current_decks = anki("getDecks", {"cards": card_ids})
+        cards_to_move = [
+            card_id
+            for deck_name, deck_card_ids in current_decks.items()
+            if deck_name != card["deck"]
+            for card_id in deck_card_ids
+        ]
+        if cards_to_move:
+            before_mutation()
+            anki("createDeck", {"deck": card["deck"]})
+            anki("changeDeck", {"cards": cards_to_move, "deck": card["deck"]})
+            changed = True
+
+    return changed
+
+
 def sync() -> int:
     database_id = require_env("NOTION_DATABASE_ID")
     # This gives a clear error before modifying anything if Anki is not running.
@@ -208,20 +258,72 @@ def sync() -> int:
         print("No Notion cards with a configured sync status.")
         return 0
 
-    imported = 0
-    skipped = 0
+    added = 0
+    updated = 0
+    unchanged = 0
+    deleted = 0
+    missing = 0
+    processed = 0
     sync_failed = False
+    collection_changed = False
+
+    def mark_collection_changed() -> None:
+        nonlocal collection_changed
+        collection_changed = True
+
+    status_property = os.getenv("NOTION_STATUS_PROPERTY", "Status")
+    ready_value = os.getenv("NOTION_READY_VALUE", "Ready")
+    imported_value = os.getenv("NOTION_IMPORTED_VALUE", "Imported")
+    rejected_value = os.getenv("NOTION_REJECTED_VALUE", "Rejected")
+    missing_value = os.getenv("NOTION_MISSING_VALUE", "Needs review")
+
     for page in pages:
         try:
+            status = notion_property(page, status_property)
+            if status == rejected_value:
+                note_ids = anki("findNotes", {"query": f"tag:{page_id_tag(page)}"})
+                if note_ids:
+                    # Rejected is an explicit Notion instruction to remove these notes.
+                    collection_changed = True
+                    anki("deleteNotes", {"notes": note_ids})
+                    deleted += len(note_ids)
+                    print(f"DELETED rejected card(s) from Anki: {page_title(page)[:80]}")
+                else:
+                    print(f"REJECTED; no matching Anki note: {page_title(page)[:80]}")
+                processed += 1
+                continue
+
             card = card_from_page(page)
             existing = anki("findNotes", {"query": f"tag:{stable_page_tag(card)}"})
             if existing:
-                print(f"SKIP already in Anki: {card['front'][:80]}")
-                if notion_property(page, os.getenv("NOTION_STATUS_PROPERTY", "Status")) == os.getenv("NOTION_READY_VALUE", "Ready"):
-                    update_status(card["page_id"], os.getenv("NOTION_IMPORTED_VALUE", "Imported"))
-                skipped += 1
+                note_infos = anki("notesInfo", {"notes": existing})
+                if not note_infos:
+                    raise RuntimeError("Anki returned note IDs but no note details")
+                note_changed = False
+                for note_info in note_infos:
+                    if update_existing_note(note_info, card, mark_collection_changed):
+                        note_changed = True
+                if note_changed:
+                    collection_changed = True
+                    updated += 1
+                    print(f"UPDATED from Notion: {card['front'][:80]}")
+                else:
+                    unchanged += 1
+                    print(f"UNCHANGED: {card['front'][:80]}")
+                if status == ready_value:
+                    update_status(card["page_id"], imported_value)
+                processed += 1
                 continue
+
+            if status == imported_value:
+                update_status(card["page_id"], missing_value)
+                missing += 1
+                print(f"MISSING in Anki; moved to {missing_value}: {card['front'][:80]}")
+                processed += 1
+                continue
+
             anki("createDeck", {"deck": card["deck"]})
+            mark_collection_changed()
             anki("addNote", {"note": {
                 "deckName": card["deck"],
                 "modelName": os.getenv("ANKI_MODEL", "Basic"),
@@ -229,22 +331,28 @@ def sync() -> int:
                 "tags": card["tags"],
                 "options": {"allowDuplicate": False, "duplicateScope": "deck"},
             }})
-            update_status(card["page_id"], os.getenv("NOTION_IMPORTED_VALUE", "Imported"))
-            print(f"IMPORTED/REPAIRED: {card['front'][:80]}")
-            imported += 1
+            update_status(card["page_id"], imported_value)
+            print(f"IMPORTED: {card['front'][:80]}")
+            added += 1
+            processed += 1
         except Exception as exc:  # keep other cards moving, but report the failure
             print(f"ERROR on {page_title(page) or page['id']}: {exc}", file=sys.stderr)
 
-    if imported and os.getenv("ANKIWEB_AUTO_SYNC", "true").lower() in {"1", "true", "yes", "on"}:
+    if collection_changed and os.getenv("ANKIWEB_AUTO_SYNC", "true").lower() in {"1", "true", "yes", "on"}:
         try:
             anki("sync")
-            print("SYNCED Anki collection to AnkiWeb.")
+            print("SYNCED Anki collection changes to AnkiWeb.")
         except Exception as exc:
             sync_failed = True
             print(f"ERROR syncing Anki collection to AnkiWeb: {exc}", file=sys.stderr)
 
-    print(f"Done. Imported/repaired {imported}; skipped {skipped}; total sync-status pages {len(pages)}.")
-    return 0 if imported + skipped == len(pages) and not sync_failed else 1
+    errors = len(pages) - processed
+    print(
+        f"Done. Added {added}; updated {updated}; deleted {deleted}; "
+        f"unchanged {unchanged}; missing for review {missing}; errors {errors}; "
+        f"total sync-status pages {len(pages)}."
+    )
+    return 0 if errors == 0 and not sync_failed else 1
 
 
 if __name__ == "__main__":
