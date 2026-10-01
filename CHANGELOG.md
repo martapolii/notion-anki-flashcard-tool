@@ -2,6 +2,16 @@
 
 This file records the repository changes made for each project version.
 
+## v4 — 2026-10-01
+
+### Windows Anki lifecycle
+
+- Launch Anki hidden only when no Anki process is already running.
+- Gracefully close the Anki instance launched by the sync runner after it finishes, including after a reported sync failure.
+- Leave Anki open when it was already running before the scheduled or manual sync began.
+- Replace the earlier v2 choice to leave newly launched Anki open as a visible notification; the user found the pop-up and persistent window disruptive.
+- Update the Windows setup and troubleshooting documentation. The existing scheduled task uses the updated runner on its next run, so it does not need to be reinstalled.
+
 ## v3 — 2026-09-30
 
 ### Notion to Anki sync behavior

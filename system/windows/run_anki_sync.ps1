@@ -71,33 +71,79 @@ Set-Location -LiteralPath $ProjectDir
 # code page cannot encode. Keep Python's output UTF-8 so one card cannot abort a run.
 $env:PYTHONIOENCODING = "utf-8"
 
+function Test-AnkiProcess {
+    return [bool](Get-Process -Name "anki" -ErrorAction SilentlyContinue)
+}
+
+$startedAnkiByRunner = $false
+$startedAnkiProcess = $null
 if ($StartAnki -and -not (Test-AnkiConnect)) {
-    $ankiPath = Get-AnkiExecutable
-    if (-not $ankiPath) {
-        throw "Anki executable not found. Set ANKI_EXE_PATH in .env or start Anki Desktop manually."
+    if (-not (Test-AnkiProcess)) {
+        $ankiPath = Get-AnkiExecutable
+        if (-not $ankiPath) {
+            throw "Anki executable not found. Set ANKI_EXE_PATH in .env or start Anki Desktop manually."
+        }
+        $startedAnkiProcess = Start-Process -FilePath $ankiPath `
+            -WorkingDirectory (Split-Path -Parent $ankiPath) -WindowStyle Hidden -PassThru
+        $startedAnkiByRunner = $true
     }
-    Start-Process -FilePath $ankiPath -WorkingDirectory (Split-Path -Parent $ankiPath)
 }
 
-$deadline = (Get-Date).AddSeconds(60)
-while (-not (Test-AnkiConnect) -and (Get-Date) -lt $deadline) {
-    Start-Sleep -Seconds 2
-}
-
-if (-not (Test-AnkiConnect)) {
-    throw "AnkiConnect is unavailable. Open Anki Desktop and confirm the AnkiConnect add-on is enabled."
-}
-
-$python = Get-Command py -ErrorAction SilentlyContinue
-if ($python) {
-    & $python.Source -3 $PythonScript
-}
-else {
-    $python = Get-Command python -ErrorAction SilentlyContinue
-    if (-not $python) {
-        throw "Python was not found. Install Python 3 and enable the Python launcher or add Python to PATH."
+$pythonExitCode = 0
+try {
+    $deadline = (Get-Date).AddSeconds(60)
+    while (-not (Test-AnkiConnect) -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 2
     }
-    & $python.Source $PythonScript
+
+    if (-not (Test-AnkiConnect)) {
+        throw "AnkiConnect is unavailable. Open Anki Desktop and confirm the AnkiConnect add-on is enabled."
+    }
+
+    $python = Get-Command py -ErrorAction SilentlyContinue
+    if ($python) {
+        & $python.Source -3 $PythonScript
+    }
+    else {
+        $python = Get-Command python -ErrorAction SilentlyContinue
+        if (-not $python) {
+            throw "Python was not found. Install Python 3 and enable the Python launcher or add Python to PATH."
+        }
+        & $python.Source $PythonScript
+    }
+    $pythonExitCode = $LASTEXITCODE
+}
+finally {
+    if ($startedAnkiByRunner) {
+        try {
+            $connectDeadline = (Get-Date).AddSeconds(10)
+            while (-not (Test-AnkiConnect) -and (Get-Date) -lt $connectDeadline) {
+                Start-Sleep -Seconds 1
+            }
+
+            if (Test-AnkiConnect) {
+                $ankiUrl = $env:ANKI_CONNECT_URL
+                if (-not $ankiUrl) {
+                    $ankiUrl = "http://127.0.0.1:8765"
+                }
+                $exitRequest = @{ action = "guiExitAnki"; version = 6 } | ConvertTo-Json -Compress
+                Invoke-RestMethod -Uri $ankiUrl -Method Post -ContentType "application/json" `
+                    -Body $exitRequest -TimeoutSec 5 | Out-Null
+            }
+            elseif ($startedAnkiProcess -and -not $startedAnkiProcess.HasExited) {
+                [void]$startedAnkiProcess.CloseMainWindow()
+            }
+
+            $shutdownDeadline = (Get-Date).AddSeconds(20)
+            while ($startedAnkiProcess -and -not $startedAnkiProcess.HasExited `
+                    -and (Get-Date) -lt $shutdownDeadline) {
+                Start-Sleep -Seconds 1
+            }
+        }
+        catch {
+            Write-Warning "The sync finished, but the Anki instance started by this runner could not be closed gracefully: $_"
+        }
+    }
 }
 
-exit $LASTEXITCODE
+exit $pythonExitCode
