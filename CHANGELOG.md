@@ -2,6 +2,15 @@
 
 This file records the repository changes made for each project version.
 
+## v5 — 2026-10-02
+
+### Windows Anki launch recovery
+
+- **Issue in v4:** starting `anki.exe` with `-WindowStyle Hidden` left an Anki process running without a normal main window. A graceful AnkiConnect exit request did not reliably terminate that windowless process, and Windows could route later desktop launches to it, making Anki appear not to open.
+- Start Anki minimized instead of hidden, so it creates its normal window and can shut down through AnkiConnect after a sync. Wait for the AnkiConnect endpoint and Anki process to stop; if graceful shutdown stalls, request a normal window close and report if Anki remains open rather than force-terminating it.
+- Detect and report an existing AnkiConnect process that has no desktop window, rather than silently treating it as a healthy desktop Anki session.
+- Document the one-time recovery for an orphaned v4 process in Task Manager.
+
 ## v4 — 2026-10-01
 
 ### Windows Anki lifecycle

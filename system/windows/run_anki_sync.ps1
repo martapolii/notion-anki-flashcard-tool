@@ -75,16 +75,31 @@ function Test-AnkiProcess {
     return [bool](Get-Process -Name "anki" -ErrorAction SilentlyContinue)
 }
 
+function Test-AnkiWindow {
+    foreach ($process in Get-Process -Name "anki" -ErrorAction SilentlyContinue) {
+        $process.Refresh()
+        if ($process.MainWindowHandle -ne [IntPtr]::Zero) {
+            return $true
+        }
+    }
+    return $false
+}
+
+$ankiConnectAvailable = Test-AnkiConnect
+if ($ankiConnectAvailable -and (Test-AnkiProcess) -and -not (Test-AnkiWindow)) {
+    throw "AnkiConnect is responding from a windowless Anki process. Close the stranded Anki.exe in Task Manager, then open Anki from its desktop shortcut."
+}
+
 $startedAnkiByRunner = $false
 $startedAnkiProcess = $null
-if ($StartAnki -and -not (Test-AnkiConnect)) {
+if ($StartAnki -and -not $ankiConnectAvailable) {
     if (-not (Test-AnkiProcess)) {
         $ankiPath = Get-AnkiExecutable
         if (-not $ankiPath) {
             throw "Anki executable not found. Set ANKI_EXE_PATH in .env or start Anki Desktop manually."
         }
         $startedAnkiProcess = Start-Process -FilePath $ankiPath `
-            -WorkingDirectory (Split-Path -Parent $ankiPath) -WindowStyle Hidden -PassThru
+            -WorkingDirectory (Split-Path -Parent $ankiPath) -WindowStyle Minimized -PassThru
         $startedAnkiByRunner = $true
     }
 }
@@ -134,10 +149,28 @@ finally {
                 [void]$startedAnkiProcess.CloseMainWindow()
             }
 
+            # AnkiConnect's exit action is asynchronous. Wait for the actual app
+            # and its API to stop; the process returned by Start-Process can be
+            # only a launcher and may exit before Anki itself does.
             $shutdownDeadline = (Get-Date).AddSeconds(20)
-            while ($startedAnkiProcess -and -not $startedAnkiProcess.HasExited `
+            while (((Test-AnkiConnect) -or (Test-AnkiProcess)) `
                     -and (Get-Date) -lt $shutdownDeadline) {
                 Start-Sleep -Seconds 1
+            }
+
+            if ((Test-AnkiConnect) -or (Test-AnkiProcess)) {
+                foreach ($process in Get-Process -Name "anki" -ErrorAction SilentlyContinue) {
+                    [void]$process.CloseMainWindow()
+                }
+                $shutdownDeadline = (Get-Date).AddSeconds(10)
+                while (((Test-AnkiConnect) -or (Test-AnkiProcess)) `
+                        -and (Get-Date) -lt $shutdownDeadline) {
+                    Start-Sleep -Seconds 1
+                }
+            }
+
+            if ((Test-AnkiConnect) -or (Test-AnkiProcess)) {
+                Write-Warning "Anki is still running after a graceful close request. It was left alone rather than forcibly terminated."
             }
         }
         catch {

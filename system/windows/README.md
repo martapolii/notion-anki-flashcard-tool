@@ -13,7 +13,7 @@ The system does not generate flashcard content. The Notion Lecture Flashcard Gen
 - A Notion internal integration with access to the Flashcards database
 - An AnkiWeb account signed in within Anki Desktop
 
-Anki Desktop must be running for AnkiConnect to accept cards. The scheduled task can start Anki in the background if it can find `anki.exe`; if the runner starts it, it asks Anki to close after the sync. An Anki instance that was already running is left open. The Windows computer must be awake and online when the scheduled task runs.
+Anki Desktop must be running for AnkiConnect to accept cards. The scheduled task can start Anki minimized if it can find `anki.exe`; if the runner starts it, it asks Anki to close after the sync. An Anki instance that was already running is left open. The Windows computer must be awake and online when the scheduled task runs.
 
 ## Configuration
 
@@ -59,7 +59,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\run_anki_sync.ps1 -StartAnki
 ```
 
-The runner loads `.env`, starts Anki hidden only if Anki is not already running, waits for AnkiConnect, then runs the Python sync script. If it started Anki, it closes that instance gracefully when the run ends, including when the sync reports an error. An Anki instance that was already open is left alone. The Python script uses only the standard library. It checks `Ready`, `Imported`, and `Rejected` Notion rows and uses each page's stable `notionid_...` tag to find its Anki note.
+The runner loads `.env`, starts Anki minimized only if Anki is not already running, waits for AnkiConnect, then runs the Python sync script. If it started Anki, it requests a graceful close and waits for the Anki app and API to exit when the run ends, including when the sync reports an error. An Anki instance that was already open is left alone. The Python script uses only the standard library. It checks `Ready`, `Imported`, and `Rejected` Notion rows and uses each page's stable `notionid_...` tag to find its Anki note.
 
 `Ready` creates a note if none exists, or updates the existing note, then changes the Notion status to `Imported`. The sync also updates existing `Imported` notes when their question, answer, Notion tags, or target deck changes in Notion, so you do not need to reset edited cards to `Ready`. It adds missing Notion tags and preserves tags it does not manage. `Rejected` deletes the matching Anki note(s) and leaves the Notion row rejected. An `Imported` row whose note is missing from Anki changes to `Needs review`; it is not recreated automatically. Set it to `Ready` to add it again.
 
@@ -75,7 +75,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\system\windows\install_task_scheduler.ps1
 ```
 
-This registers a task named `Notion-Anki-Sync` for the account running PowerShell and starts it once immediately. A successful install prints `Installed Windows Task Scheduler task: Notion-Anki-Sync`. After that it runs at login and every 15 minutes while you are logged in. The task uses a windowless Windows Script Host launcher for PowerShell, uses the project folder as its working directory, and starts Anki hidden only when no Anki process is already running. A newly started instance is closed after the sync; an instance you opened yourself stays open.
+This registers a task named `Notion-Anki-Sync` for the account running PowerShell and starts it once immediately. A successful install prints `Installed Windows Task Scheduler task: Notion-Anki-Sync`. After that it runs at login and every 15 minutes while you are logged in. The task uses a windowless Windows Script Host launcher for PowerShell, uses the project folder as its working directory, and starts Anki minimized only when no Anki process is already running. A newly started instance is closed after the sync; an instance you opened yourself stays open.
 
 The updated behavior takes effect on the next run; you do not need to reinstall the scheduled task.
 
@@ -121,5 +121,6 @@ Common issues:
 - **Notion returns `404 object_not_found`:** check that `NOTION_DATABASE_ID` is the Flashcards database ID and that the database has been shared with the integration named by the token in `.env`.
 - **Task registration says `Access is denied`:** run PowerShell as administrator under the Windows account that should own the task, then run the installer again.
 - **Anki stays open after a scheduled sync:** the runner closes only instances it started. If Anki was already open, the runner intentionally leaves it open.
-- **Anki window appears during a scheduled sync:** the runner requests a hidden launch. Windows or the installed Anki build may still briefly show its window during startup; the runner closes its instance after the sync.
+- **Anki will not open after using v4:** v4 could leave a windowless `Anki.exe` running. In Task Manager, open **Details**, select `anki.exe`, choose **End task**, then open Anki from its desktop shortcut. The current runner detects this stranded state instead of silently using it.
+- **Anki window appears during a scheduled sync:** Anki starts minimized so it can create its normal desktop window and exit cleanly after the sync. It may appear in the taskbar while the sync runs, but it should not take focus.
 - **Sync conflict:** resolve it manually in Anki after checking which device has the authoritative collection. Do not blindly choose Upload or Download.
