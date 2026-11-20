@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [int]$IntervalMinutes = 15
+    [ValidatePattern('^(?:[01][0-9]|2[0-3]):[0-5][0-9]$')]
+    [string]$DailyTime = "20:00"
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,16 +16,14 @@ if (-not (Test-Path -LiteralPath (Join-Path $ProjectDir ".env"))) {
 $windowsScriptHost = Join-Path $env:SystemRoot "System32\wscript.exe"
 $arguments = "//B //NoLogo `"$HiddenRunner`""
 $action = New-ScheduledTaskAction -Execute $windowsScriptHost -Argument $arguments -WorkingDirectory $ProjectDir
-$logonTrigger = New-ScheduledTaskTrigger -AtLogOn
-$repeatTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
-    -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
-    -RepetitionDuration (New-TimeSpan -Days 3650)
+$dailyTrigger = New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.Add([TimeSpan]::Parse($DailyTime)))
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
 
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger @($logonTrigger, $repeatTrigger) `
-    -Principal $principal -Settings $settings -Description "Imports Notion flashcards into Anki and syncs AnkiWeb." -Force | Out-Null
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $dailyTrigger `
+    -Principal $principal -Settings $settings -Description "Imports Notion flashcards into Anki and syncs AnkiWeb." `
+    -Force -ErrorAction Stop | Out-Null
 
-Start-ScheduledTask -TaskName $TaskName
 Write-Host "Installed Windows Task Scheduler task: $TaskName"
-Write-Host "Runs at login and every $IntervalMinutes minutes."
+Write-Host "Runs daily at $DailyTime local time, or when available after a missed run."
