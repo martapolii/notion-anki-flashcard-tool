@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
-    [switch]$StartAnki
+    [switch]$StartAnki,
+    [switch]$Scheduled,
+    [switch]$FullReconcile
 )
 
 $ErrorActionPreference = "Stop"
@@ -67,6 +69,27 @@ function Test-AnkiConnect {
 
 Import-DotEnv $EnvFile
 Set-Location -LiteralPath $ProjectDir
+$lastFullFile = Join-Path $ProjectDir ".last_full_reconcile"
+$nowUtc = (Get-Date).ToUniversalTime()
+$doFullReconcile = [bool]$FullReconcile
+if ($Scheduled) {
+    if (Test-Path -LiteralPath $lastFullFile) {
+        $lastFullUtc = [datetime]::MinValue
+        $stamp = (Get-Content -LiteralPath $lastFullFile -Raw).Trim()
+        if (-not [datetime]::TryParse($stamp, [ref]$lastFullUtc)) {
+            $lastFullUtc = [datetime]::MinValue
+        }
+    }
+    else {
+        $lastFullUtc = [datetime]::MinValue
+    }
+    $daysSinceFull = ($nowUtc - $lastFullUtc.ToUniversalTime()).TotalDays
+    if ($daysSinceFull -ge 7 -or ((Get-Date).DayOfWeek -eq [DayOfWeek]::Saturday -and $daysSinceFull -ge 6)) {
+        $doFullReconcile = $true
+    }
+}
+$env:NOTION_SYNC_STATUS_VALUES = if ($doFullReconcile) { "Ready,Imported,Rejected" } else { "Ready,Rejected" }
+if ($doFullReconcile) { Write-Host "Running full reconciliation." } else { Write-Host "Checking Ready and Rejected rows." }
 # Notion questions can contain Unicode punctuation that the Windows console
 # code page cannot encode. Keep Python's output UTF-8 so one card cannot abort a run.
 $env:PYTHONIOENCODING = "utf-8"
@@ -127,6 +150,9 @@ try {
         & $python.Source $PythonScript
     }
     $pythonExitCode = $LASTEXITCODE
+    if ($doFullReconcile -and $pythonExitCode -eq 0) {
+        Set-Content -LiteralPath $lastFullFile -Value ((Get-Date).ToUniversalTime().ToString("o")) -Encoding ASCII
+    }
 }
 finally {
     if ($startedAnkiByRunner) {
