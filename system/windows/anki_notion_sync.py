@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable
 
+from card_formatting import render_answer, render_front
 from deck_naming import normalized_deck_name
 
 
@@ -172,6 +173,11 @@ def card_from_page(page: dict[str, Any]) -> dict[str, Any]:
         part.strip().casefold() == "abbreviations" for part in source_deck.split("::")
     ):
         tags.append(deck.split("::", 1)[0] + "_abbreviations")
+    if deck.endswith(("::Week 8", "::Week 9")):
+        emphasis = notion_property(page, os.getenv("NOTION_FRONT_EMPHASIS_PROPERTY", "Front Emphasis"))
+        question = render_front(question, emphasis)
+        answer_property = page.get("properties", {}).get(os.getenv("NOTION_ANSWER_PROPERTY", "Answer"), {})
+        answer = render_answer(answer_property.get("rich_text") or [])
     return {"page_id": page["id"], "front": question, "back": answer,
             "deck": deck, "week": week, "tags": tags}
 
