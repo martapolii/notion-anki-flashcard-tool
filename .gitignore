@@ -2,4 +2,5 @@
 *.log
 logs/
 __pycache__/
+.last_full_reconcile
 .DS_Store
