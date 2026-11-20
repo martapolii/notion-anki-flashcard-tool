@@ -14,6 +14,8 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable
 
+from deck_naming import normalized_deck_name
+
 
 NOTION_VERSION = os.getenv("NOTION_VERSION", "2022-06-28")
 NOTION_API = "https://api.notion.com/v1"
@@ -92,7 +94,7 @@ def query_sync_pages(database_id: str) -> list[dict[str, Any]]:
     url = f"{NOTION_API}/databases/{database_id}/query"
     statuses = [
         value.strip()
-        for value in os.getenv("NOTION_SYNC_STATUS_VALUES", "Ready,Imported,Rejected").split(",")
+        for value in os.getenv("NOTION_SYNC_STATUS_VALUES", "Ready,Rejected").split(",")
         if value.strip()
     ]
     status_filters = [
@@ -137,30 +139,6 @@ def safe_tag(value: str) -> str:
     return value.strip("_") or "untagged"
 
 
-def week_label(value: str) -> str:
-    """Normalize values such as 1, W1, W1 (2), and Week 1 to Week 1."""
-    value = value.strip()
-    match = re.search(r"(?:week|w)\s*[-_]?\s*(\d+)", value, re.IGNORECASE)
-    if match:
-        return f"Week {match.group(1)}"
-    if value.isdigit():
-        return f"Week {value}"
-    return value
-
-
-def session_number(value: str) -> str:
-    """Extract the session number from W1 (2), Week 1 (2), etc."""
-    match = re.search(r"(?:week|w)\s*[-_]?\s*\d+\s*\(\s*(\d+)\s*\)", value.strip(), re.IGNORECASE)
-    return match.group(1) if match else ""
-
-
-def base_deck_name(deck: str, class_name: str) -> str:
-    """Prefer a populated deck, otherwise derive a lowercase code from Class."""
-    value = (deck.strip() or class_name.strip()).lower()
-    sectionless = re.fullmatch(r"([a-z0-9_-]+)\s*\([^)]*\)", value)
-    return sectionless.group(1) if sectionless else value
-
-
 def card_from_page(page: dict[str, Any]) -> dict[str, Any]:
     question = notion_property(page, os.getenv("NOTION_QUESTION_PROPERTY", "Question"))
     answer = notion_property(page, os.getenv("NOTION_ANSWER_PROPERTY", "Answer"))
@@ -173,23 +151,27 @@ def card_from_page(page: dict[str, Any]) -> dict[str, Any]:
     class_name = notion_property(page, os.getenv("NOTION_CLASS_PROPERTY", "Class"), "Class")
     week = notion_property(page, os.getenv("NOTION_WEEK_PROPERTY", "Week"))
     topic = notion_property(page, os.getenv("NOTION_TOPIC_PROPERTY", "Topic"))
-    deck = notion_property(page, os.getenv("NOTION_DECK_PROPERTY", "Anki Deck"))
-    if not deck:
-        deck = class_name or os.getenv("ANKI_DECK", "Notion Cards")
-    # Course/deck names are intentionally lowercase in this workflow.
-    deck = base_deck_name(deck, class_name)
-    week_source = week or topic
-    if os.getenv("ANKI_WEEK_SUBDECKS", "true").lower() in {"1", "true", "yes", "on"} and week_source:
-        normalized_week = week_label(week_source)
-        session = session_number(week) or session_number(topic)
-        deck = f"{deck}::{normalized_week}"
-        if session:
-            deck += f"::Session {session}"
+    source_deck = notion_property(page, os.getenv("NOTION_DECK_PROPERTY", "Anki Deck"))
+    abbreviation_property = page.get("properties", {}).get(
+        os.getenv("NOTION_ABBREVIATION_PROPERTY", "Abbreviation"), {}
+    )
+    deck = normalized_deck_name(
+        source_deck,
+        class_name,
+        week,
+        topic,
+        fallback=os.getenv("ANKI_DECK", "Notion Cards"),
+        week_subdecks=os.getenv("ANKI_WEEK_SUBDECKS", "true").lower() in {"1", "true", "yes", "on"},
+    )
     tags = ["notion", safe_tag(class_name), "notionid_" + page_id]
     if week:
         tags.append("week_" + safe_tag(week))
     if topic:
         tags.append("topic_" + safe_tag(topic))
+    if (abbreviation_property.get("type") == "checkbox" and abbreviation_property.get("checkbox")) or any(
+        part.strip().casefold() == "abbreviations" for part in source_deck.split("::")
+    ):
+        tags.append(deck.split("::", 1)[0] + "_abbreviations")
     return {"page_id": page["id"], "front": question, "back": answer,
             "deck": deck, "week": week, "tags": tags}
 
@@ -210,15 +192,16 @@ def note_field_value(note_info: dict[str, Any], name: str) -> str | None:
 
 
 def update_existing_note(note_info: dict[str, Any], card: dict[str, Any],
-                         before_mutation: Callable[[], None]) -> bool:
+                         before_mutation: Callable[[], None], *, sync_fields: bool = False) -> bool:
     """Mirror Notion content and deck placement while preserving user tags."""
     note_id = note_info["noteId"]
     changed = False
     fields = {}
-    if note_field_value(note_info, "Front") != card["front"]:
-        fields["Front"] = card["front"]
-    if note_field_value(note_info, "Back") != card["back"]:
-        fields["Back"] = card["back"]
+    if sync_fields or os.getenv("ANKI_SYNC_NOTE_FIELDS", "false").lower() in {"1", "true", "yes", "on"}:
+        if note_field_value(note_info, "Front") != card["front"]:
+            fields["Front"] = card["front"]
+        if note_field_value(note_info, "Back") != card["back"]:
+            fields["Back"] = card["back"]
     if fields:
         before_mutation()
         anki("updateNoteFields", {"note": {"id": note_id, "fields": fields}})
@@ -237,7 +220,9 @@ def update_existing_note(note_info: dict[str, Any], card: dict[str, Any],
         cards_to_move = [
             card_id
             for deck_name, deck_card_ids in current_decks.items()
-            if deck_name != card["deck"]
+            # A saved filtered deck temporarily holds cards from their weekly
+            # home decks. Leave those cards there until the user empties it.
+            if deck_name not in {card["deck"], card["deck"].split("::", 1)[0] + "::Abbreviations"}
             for card_id in deck_card_ids
         ]
         if cards_to_move:
@@ -263,6 +248,7 @@ def sync() -> int:
     unchanged = 0
     deleted = 0
     missing = 0
+    duplicates = 0
     processed = 0
     sync_failed = False
     collection_changed = False
@@ -276,6 +262,7 @@ def sync() -> int:
     imported_value = os.getenv("NOTION_IMPORTED_VALUE", "Imported")
     rejected_value = os.getenv("NOTION_REJECTED_VALUE", "Rejected")
     missing_value = os.getenv("NOTION_MISSING_VALUE", "Needs review")
+    duplicate_value = os.getenv("NOTION_DUPLICATE_VALUE", "Duplicate")
 
     for page in pages:
         try:
@@ -293,6 +280,11 @@ def sync() -> int:
                 processed += 1
                 continue
 
+            if status not in {ready_value, imported_value}:
+                print(f"SKIPPED; status {status or '(empty)'} is not eligible for Anki sync: {page_title(page)[:80]}")
+                processed += 1
+                continue
+
             card = card_from_page(page)
             existing = anki("findNotes", {"query": f"tag:{stable_page_tag(card)}"})
             if existing:
@@ -301,7 +293,8 @@ def sync() -> int:
                     raise RuntimeError("Anki returned note IDs but no note details")
                 note_changed = False
                 for note_info in note_infos:
-                    if update_existing_note(note_info, card, mark_collection_changed):
+                    if update_existing_note(note_info, card, mark_collection_changed,
+                                            sync_fields=status == ready_value):
                         note_changed = True
                 if note_changed:
                     collection_changed = True
@@ -322,15 +315,24 @@ def sync() -> int:
                 processed += 1
                 continue
 
-            anki("createDeck", {"deck": card["deck"]})
-            mark_collection_changed()
-            anki("addNote", {"note": {
+            note = {
                 "deckName": card["deck"],
                 "modelName": os.getenv("ANKI_MODEL", "Basic"),
                 "fields": {"Front": card["front"], "Back": card["back"]},
                 "tags": card["tags"],
                 "options": {"allowDuplicate": False, "duplicateScope": "deck"},
-            }})
+            }
+            if anki("canAddNotes", {"notes": [note]}) != [True]:
+                # Anki rejects duplicate fronts in the same deck. Do not force
+                # a second note or merge different answers automatically.
+                update_status(card["page_id"], duplicate_value)
+                duplicates += 1
+                processed += 1
+                print(f"DUPLICATE; Anki would reject this card: {card['front'][:80]}")
+                continue
+            anki("createDeck", {"deck": card["deck"]})
+            mark_collection_changed()
+            anki("addNote", {"note": note})
             update_status(card["page_id"], imported_value)
             print(f"IMPORTED: {card['front'][:80]}")
             added += 1
@@ -349,7 +351,7 @@ def sync() -> int:
     errors = len(pages) - processed
     print(
         f"Done. Added {added}; updated {updated}; deleted {deleted}; "
-        f"unchanged {unchanged}; missing for review {missing}; errors {errors}; "
+        f"unchanged {unchanged}; missing for review {missing}; duplicates {duplicates}; errors {errors}; "
         f"total sync-status pages {len(pages)}."
     )
     return 0 if errors == 0 and not sync_failed else 1
