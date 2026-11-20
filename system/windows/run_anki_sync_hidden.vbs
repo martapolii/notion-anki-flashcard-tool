@@ -11,7 +11,7 @@ powershellPath = shell.ExpandEnvironmentStrings("%SystemRoot%") & _
 
 shell.CurrentDirectory = scriptDir
 command = """" & powershellPath & """ -NoProfile -WindowStyle Hidden" & _
-    " -ExecutionPolicy Bypass -File """ & runnerPath & """ -StartAnki"
+    " -ExecutionPolicy Bypass -File """ & runnerPath & """ -StartAnki -Scheduled"
 
 exitCode = shell.Run(command, 0, True)
 WScript.Quit exitCode
