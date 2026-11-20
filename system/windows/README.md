@@ -84,6 +84,14 @@ Keep rejected rows in Notion: deleting a row outright removes the sync's way to 
 
 For content cleanup, review the question and answer before changing a status. Keep quiz-bank questions and course software-demo examples even when they revisit an earlier topic: they may be reused in later assessments. Mark a genuinely unwanted row `Rejected` so Anki can remove its note; keep the Notion row as the deletion record. To revise a card, edit its Question or Answer, then mark it `Ready` to send that wording to Anki. To restore a missing card in `Needs review`, mark it `Ready` after confirming that a new Anki note is wanted. Check a `Duplicate` row manually before changing its status.
 
+## Card formatting for weeks 8 and 9
+
+For these weeks, the Question title supplies the front text. The optional `Front Emphasis` Text property lists exact phrases to bold in the question, one phrase per line. Leave it blank when bold text would hint at a fill-in-the-blank quiz answer. Questions with multiple lines, such as multiple-choice questions, display their choices on separate left-aligned lines.
+
+The Answer Text property supplies the back. Use Notion's inline **bold** formatting for important answer terms. Put each list item on its own line, starting with `- ` for bullets or `1. `, `2. `, and so on for an ordered list. Keep a comma or semicolon at the end of its item rather than the start of the next one. Ordinary prose needs no list marker. The Windows importer preserves Notion bold and links, renders marked lists as Anki HTML, and left-aligns the back. It does not infer list items from commas.
+
+This rendering applies only to cards whose resolved deck is `course::Week 8` or `course::Week 9`. Other weeks keep their existing field rendering. The normal `Imported` check still preserves Anki field edits; marking a card `Ready` replaces its Front and Back from Notion, including the formatting. Check any card whose Anki wording differs from Notion before marking it `Ready`, especially quiz questions and software demos.
+
 ## Automatic scheduling
 
 Open PowerShell **as the Windows account that should own the task**. If registration reports **Access is denied**, reopen PowerShell with **Run as administrator** and run these commands from the repository:
@@ -116,15 +124,17 @@ The normal importer places cards in course/week decks, but it does not automatic
 3. Run `py -3 cleanup_empty_decks.py` to preview obsolete empty deck trees. Inspect every listed name: this tool treats any deck outside the configured course/week pattern as obsolete, including unrelated empty decks in the same Anki collection. It refuses a tree containing cards.
 4. If the preview lists only decks you want removed, run `py -3 cleanup_empty_decks.py --apply --expect-roots R --expect-cards C`, using its **obsolete empty deck trees** count for `R` and **Cards** count for `C`. It rechecks both counts, removes only empty trees, verifies the card count, and syncs AnkiWeb.
 
-`deck_naming.py` contains the shared course/week mapping used by the importer and migration preview. Run `py -3 -m unittest test_deck_naming.py` from `system/windows` to check that mapping and the importer's related behavior after changing it. `cleanup_empty_decks.py` uses the default local AnkiConnect address; if you changed `ANKI_CONNECT_URL`, set it in the PowerShell process before using that tool.
+`deck_naming.py` contains the shared course/week mapping used by the importer and migration preview. Run `py -3 -m unittest test_deck_naming.py test_card_formatting.py` from `system/windows` to check the deck and formatting logic after changing it. `cleanup_empty_decks.py` uses the default local AnkiConnect address; if you changed `ANKI_CONNECT_URL`, set it in the PowerShell process before using that tool.
 
 | File | Purpose |
 | --- | --- |
 | `anki_notion_sync.py` | Imports, updates, rejects, and reconciles Notion cards through AnkiConnect. |
+| `card_formatting.py` | Renders Notion rich text and explicit lists for weeks 8 and 9. |
 | `deck_naming.py` | Resolves course/week destinations and rejects unknown or conflicting weeks. |
 | `migrate_decks.py` | Previews or applies one-time moves from legacy decks. |
 | `cleanup_empty_decks.py` | Previews or removes obsolete empty deck trees. |
 | `test_deck_naming.py` | Checks deck mapping and key importer behavior. |
+| `test_card_formatting.py` | Checks safe HTML, emphasis, line breaks, and list rendering. |
 | `run_anki_sync.ps1` | Loads `.env`, chooses daily or full reconciliation, and runs the importer. |
 | `run_anki_sync_hidden.vbs` | Starts the scheduled PowerShell runner without a console window. |
 | `install_task_scheduler.ps1` / `uninstall_task_scheduler.ps1` | Registers or removes the daily Windows task. |
