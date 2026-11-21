@@ -16,6 +16,8 @@ class CardFormattingTests(unittest.TestCase):
     def test_multiline_question_keeps_choices_on_separate_lines(self):
         self.assertEqual(render_front('Which item?\nA. First\nB. Second'),
                          'Which item?<div style="text-align:left; margin-top:0.75em"><div>A. First</div><div>B. Second</div></div>')
+        self.assertEqual(render_front('Which item? A. First | B. Second'),
+                         'Which item?<div style="text-align:left; margin-top:0.75em"><div>A. First</div><div>B. Second</div></div>')
 
     def test_answer_renders_bold_and_both_list_types(self):
         rich = [
@@ -28,7 +30,7 @@ class CardFormattingTests(unittest.TestCase):
         self.assertIn('<ul><li>Review;</li></ul>', result)
         self.assertIn('style="text-align:left"', result)
 
-    def test_importer_limits_rendering_to_weeks_eight_and_nine(self):
+    def test_importer_limits_rendering_to_weeks_seven_through_nine(self):
         def page(week):
             return {'id': '12345678-1234-1234-1234-123456789abc', 'properties': {
                 'Question': {'type': 'title', 'title': [{'plain_text': 'What is a process?'}]},
@@ -37,9 +39,10 @@ class CardFormattingTests(unittest.TestCase):
                 'Week': {'type': 'rich_text', 'rich_text': [{'plain_text': week}]},
                 'Front Emphasis': {'type': 'rich_text', 'rich_text': [{'plain_text': 'process'}]},
             }}
-        self.assertIn('<ul>', card_from_page(page('W8'))['back'])
-        self.assertIn('<strong>process</strong>', card_from_page(page('W8'))['front'])
-        self.assertEqual(card_from_page(page('W7'))['back'], '- First,\n- second.')
+        for week in ('W7', 'W8', 'W9'):
+            self.assertIn('<ul>', card_from_page(page(week))['back'])
+            self.assertIn('<strong>process</strong>', card_from_page(page(week))['front'])
+        self.assertEqual(card_from_page(page('W6'))['back'], '- First,\n- second.')
 
 
 if __name__ == '__main__':
