@@ -13,6 +13,9 @@ LIST_MARKER = re.compile(r"^\s*(?:(?P<bullet>[-•])|(?P<number>\d+[.)]))\s+")
 
 def render_front(question: str, emphasis: str = "") -> str:
     """Bold only exact phrases explicitly named in Front Emphasis."""
+    if re.search(r"\bA\.\s.*\s\|\s*B\.\s", question, re.S):
+        question = re.sub(r"\s*\|\s*(?=[B-E]\.\s)", "\n", question)
+        question = re.sub(r"\s+(?=A\.\s)", "\n", question, count=1)
     phrases = sorted({part.strip() for part in emphasis.splitlines() if part.strip()}, key=len, reverse=True)
     pattern = (re.compile(r"(?<!\w)(?:" + "|".join(re.escape(part) for part in phrases) + r")(?!\w)", re.IGNORECASE)
                if phrases else None)
